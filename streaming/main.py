@@ -1,7 +1,9 @@
+import time
 import streamlit as st
 from typing import Annotated
 from dotenv import load_dotenv
 from typing_extensions import TypedDict
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
@@ -9,6 +11,7 @@ from langchain_community.tools import TavilySearchResults
 from langchain.agents import initialize_agent
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
+from google.api_core.exceptions import ResourceExhausted
 
 load_dotenv()
 
@@ -18,7 +21,9 @@ class State(TypedDict):
     requires_human_review: bool
 
 # ----- Initialize LLM -----
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.0)
+# Use flash for dev (higher limits), pro for production
+MODEL_NAME = "gemini-1.5-flash"  # change to gemini-2.5-pro if needed
+llm = ChatGoogleGenerativeAI(model=MODEL_NAME, temperature=0.0)
 
 # ----- Search Tool -----
 search_tool = TavilySearchResults(search_depth="basic")
@@ -54,7 +59,6 @@ def chatbot(state: State) -> State:
     }
 
 def human_review(state: State) -> State:
-    # In Streamlit, we won't use input(), this will be handled by the UI
     return state
 
 # ----- Build Graph -----
@@ -66,7 +70,11 @@ def route_to_review(state: State):
     return "human_review" if state["requires_human_review"] else END
 
 graph_builder.add_edge(START, "chatbot")
-graph_builder.add_conditional_edges("chatbot", route_to_review, {"human_review": "human_review", END: END})
+graph_builder.add_conditional_edges(
+    "chatbot",
+    route_to_review,
+    {"human_review": "human_review", END: END}
+)
 graph_builder.add_edge("human_review", "chatbot")
 
 # ----- Memory -----
@@ -93,24 +101,39 @@ if prompt := st.chat_input("Type your message..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Streaming AI output
+    # Streaming AI output with retry
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         full_response = ""
 
-        for chunk in graph.stream(
-            {
-                "messages": st.session_state.messages,
-                "requires_human_review": False
-            },
-            config={"configurable": {"thread_id": st.session_state.thread_id}}
-        ):
-            # chunk is a dict containing "messages"
-            if "messages" in chunk:
-                latest_ai_message = chunk["messages"][-1]["content"]
-                if isinstance(latest_ai_message, str):
-                    full_response = latest_ai_message
-                    message_placeholder.markdown(full_response + "▌")
-        
-        message_placeholder.markdown(full_response)
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
+        retry_attempts = 3
+        delay = 5  # start wait in seconds
+
+        for attempt in range(retry_attempts):
+            try:
+                for chunk in graph.stream(
+                    {
+                        "messages": st.session_state.messages,
+                        "requires_human_review": False
+                    },
+                    config={"configurable": {"thread_id": st.session_state.thread_id}}
+                ):
+                    if "messages" in chunk:
+                        latest_ai_message = chunk["messages"][-1]["content"]
+                        if isinstance(latest_ai_message, str):
+                            full_response = latest_ai_message
+                            message_placeholder.markdown(full_response + "▌")
+
+                message_placeholder.markdown(full_response)
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": full_response}
+                )
+                break  # success → exit retry loop
+
+            except ResourceExhausted:
+                if attempt < retry_attempts - 1:
+                    st.warning(f"⚠️ Rate limit hit. Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                    delay *= 2  # exponential backoff
+                else:
+                    st.error("❌ Rate limit exceeded. Please wait a minute and try again.")
