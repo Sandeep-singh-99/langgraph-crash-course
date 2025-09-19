@@ -1,16 +1,16 @@
 import streamlit as st
 from dotenv import load_dotenv
 import os
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+# from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_community.document_loaders import PyMuPDFLoader
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
-from langchain_community.tools import TavilySearchResults
-from langchain_core.messages import AIMessage, HumanMessage
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.llms import HuggingFaceHub
 
 load_dotenv()
+
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
 st.set_page_config(page_title="PDF Chatbot", page_icon="📄")
 st.title("📄 PDF Chatbot")
@@ -37,7 +37,7 @@ if not os.path.exists(persistent_directory):
     st.write(f"First chunk {docs[0].page_content}...")
 
     st.write("----Creating Vector Store----")
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     st.write("Embeddings created Successfully")
 
     st.write("Creating Chroma Vector Store...")
