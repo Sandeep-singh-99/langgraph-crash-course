@@ -6,7 +6,7 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.llms import HuggingFaceHub
+
 
 load_dotenv()
 
@@ -45,3 +45,4 @@ if not os.path.exists(persistent_directory):
     st.write("Chroma Vector Store created successfully.")
 else:
     st.write("Persistent directory already exists. Skipping document loading and vector store creation.")
+    db = Chroma(persist_directory=persistent_directory, embedding_function=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))

@@ -1,3 +1,6 @@
 venv/
 
 .env
+
+pdf_chatbot/db
+/pdf_chatbot/db.sqlite3
